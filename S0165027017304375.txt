@@ -1,0 +1,9 @@
+Isabella Castiglioni, Christian Salvatore, Javier Ramírez, Juan Manuel Górriz,
+Machine-learning neuroimaging challenge for automated diagnosis of mild cognitive impairment: Lessons learnt,
+Journal of Neuroscience Methods,
+Volume 302,
+2018,
+Pages 10-13,
+ISSN 0165-0270,
+https://doi.org/10.1016/j.jneumeth.2017.12.019.
+(https://www.sciencedirect.com/science/article/pii/S0165027017304375)

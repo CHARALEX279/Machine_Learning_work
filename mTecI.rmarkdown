@@ -1,0 +1,295 @@
+------------------------------------------------------------------------
+
+title: "Capstone"
+
+author: "Alasia Miller"
+
+format: html
+
+editor: visual
+
+------------------------------------------------------------------------
+
+Load in data from 10X
+
+```{r}
+
+#remotes::install_github("satijalab/seurat", "seurat5", quiet #= TRUE)
+
+library(dplyr)
+
+library(Seurat)
+
+library(patchwork)
+
+# Install the required package
+
+#install.packages("readr")
+
+# Load the installed Package
+
+library(readr)
+
+ 
+
+# Load the  dataset
+
+ 
+
+# For output from CellRanger < 3.0
+
+data_dir <- 'C://Users//Alasi//Downloads//mTecI'
+
+list.files(data_dir) # Should show barcodes.tsv, genes.tsv, and matrix.mtx
+
+expression_matrix <- Read10X(data.dir = data_dir)
+
+mTecI = CreateSeuratObject(counts = expression_matrix)
+
+ mTecI
+
+```
+
+Seurat allows you to easily explore QC metrics and filter cells based on any user-defined criteria. A few QC metrics [commonly used](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4758103/) by the community include
+
+-   The number of unique genes detected in each cell.
+
+    -   Low-quality cells or empty droplets will often have very few genes
+
+    -   Cell doublets or multiplets may exhibit an aberrantly high gene count
+
+-   Similarly, the total number of molecules detected within a cell (correlates strongly with unique genes)
+
+-   The percentage of reads that map to the mitochondrial genome
+
+    -   Low-quality / dying cells often exhibit extensive mitochondrial contamination
+
+    -   We calculate mitochondrial QC metrics with the [`PercentageFeatureSet()`](https://satijalab.org/seurat/reference/PercentageFeatureSet.html) function, which calculates the percentage of counts originating from a set of features
+
+    -   We use the set of all genes starting with `MT-` as a set of mitochondrial genes
+
+```{r}
+
+mTecI[["percent.mt"]] <- PercentageFeatureSet(mTecI, pattern = "^MT-")
+
+
+
+```
+
+In the example below, we visualize QC metrics, and use these to filter cells.
+
+-   We filter cells that have unique feature counts over 2,500 or less than 200
+
+-   We filter cells that have \>5% mitochondrial counts
+
+```{r}
+
+VlnPlot(mTecI, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+```
+
+```{r}
+
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+
+
+
+plot1 <- FeatureScatter(mTecI, feature1 = "nCount_RNA", feature2 = "percent.mt")
+
+plot2 <- FeatureScatter(mTecI, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+plot1 + plot2
+
+```
+
+```{r}
+
+mTecI <- subset(mTecI, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+
+```
+
+Normalizing the data
+
+After removing unwanted cells from the dataset, the next step is to normalize the data. By default, we employ a global-scaling normalization method "LogNormalize" that normalizes the feature expression measurements for each cell by the total expression, multiplies this by a scale factor (10,000 by default), and log-transforms the result. Normalized values are stored in mTecI$$\["RNA"$$]\@data.
+
+```{r}
+
+
+
+mTecI <- NormalizeData(mTecI, normalization.method = "LogNormalize", scale.factor = 10000)
+
+```
+
+Identification of highly variable features (feature selection)
+
+We next calculate a subset of features that exhibit high cell-to-cell variation in the dataset (i.e, they are highly expressed in some cells, and lowly expressed in others). We and others have found that focusing on these genes in downstream analysis helps to highlight biological signal in single-cell datasets.
+
+Our procedure in Seurat is described in detail here, and improves on previous versions by directly modeling the mean-variance relationship inherent in single-cell data, and is implemented in the FindVariableFeatures() function. By default, we return 2,000 features per dataset. These will be used in downstream analysis, like PCA.
+
+```{r}
+
+
+
+suppressWarnings(suppressMessages(mTecI <- FindVariableFeatures(mTecI, selection.method = "vst",
+
+    nfeatures = 2000, verbose = FALSE, assay = "RNA")))
+
+top10 <- head(VariableFeatures(mTecI), 10)
+
+
+
+LabelPoints(plot = VariableFeaturePlot(mTecI), points = top10, repel = TRUE)
+
+```
+
+Scaling the data
+
+Next, we apply a linear transformation ('scaling') that is a standard pre-processing step prior to dimensional reduction techniques like PCA. The ScaleData() function:
+
+Shifts the expression of each gene, so that the mean expression across cells is 0
+
+Scales the expression of each gene, so that the variance across cells is 1
+
+This step gives equal weight in downstream analyses, so that highly-expressed genes do not dominate
+
+The results of this are stored in mTecI$$\["RNA"$$]\@scale.data
+
+```{r}
+
+all.genes <- rownames(mTecI)
+
+mTecI <- ScaleData(mTecI, features = all.genes)
+
+```
+
+Perform linear dimensional reduction
+
+Next we perform PCA on the scaled data. By default, only the previously determined variable features are used as input, but can be defined using features argument if you wish to choose a different subset.
+
+```{r}
+
+mTecI <- RunPCA(mTecI, features = VariableFeatures(object = mTecI))
+
+```
+
+```{r}
+
+#Examine and visualize PCA results a few different ways
+
+print(mTecI[["pca"]], dims = 1:5, nfeatures = 5)
+
+VizDimLoadings(mTecI, dims = 1:2, reduction = "pca")
+
+```
+
+```{r}
+
+DimPlot(mTecI, reduction = "pca")
+
+```
+
+In particular DimHeatmap() allows for easy exploration of the primary sources of heterogeneity in a dataset, and can be useful when trying to decide which PCs to include for further downstream analyses. Both cells and features are ordered according to their PCA scores. Setting cells to a number plots the 'extreme' cells on both ends of the spectrum, which dramatically speeds plotting for large datasets. Though clearly a supervised analysis, we find this to be a valuable tool for exploring correlated feature sets.
+
+```{r}
+
+DimHeatmap(mTecI, dims = 1, cells = 500, balanced = TRUE)
+
+```
+
+```{r}
+
+DimHeatmap(mTecI, dims = 1:10, cells = 500, balanced = TRUE)
+
+```
+
+Determine the 'dimensionality' of the dataset
+
+To overcome the extensive technical noise in any single feature for scRNA-seq data, Seurat clusters cells based on their PCA scores, with each PC essentially representing a 'metafeature' that combines information across a correlated feature set. The top principal components therefore represent a robust compression of the dataset. However, how many components should we choose to include? 10? 20? 100?
+
+In Macosko et al, we implemented a resampling test inspired by the JackStraw procedure. We randomly permute a subset of the data (1% by default) and rerun PCA, constructing a 'null distribution' of feature scores, and repeat this procedure. We identify 'significant' PCs as those who have a strong enrichment of low p-value features.
+
+```{r}
+
+ElbowPlot(mTecI) 
+
+```
+
+Identifying the true dimensionality of a dataset -- can be challenging/uncertain for the user. We therefore suggest these three approaches to consider. The first is more supervised, exploring PCs to determine relevant sources of heterogeneity, and could be used in conjunction with GSEA for example.
+
+We chose 10 here, but encourage users to consider the following:
+
+Dendritic cell and NK aficionados may recognize that genes strongly associated with PCs 12 and 13 define rare immune subsets (i.e. MZB1 is a marker for plasmacytoid DCs). However, these groups are so rare, they are difficult to distinguish from background noise for a dataset of this size without prior knowledge.
+
+We encourage users to repeat downstream analyses with a different number of PCs (10, 15, or even 50!). As you will observe, the results often do not differ dramatically.
+
+We advise users to err on the higher side when choosing this parameter. For example, performing downstream analyses with only 5 PCs does significantly and adversely affect results.
+
+Cluster the cells to iteratively group cells together, with the goal of optimizing the standard modularity function
+
+```{r}
+
+mTecI <- FindNeighbors(mTecI, dims = 1:10)
+
+mTecI <- FindClusters(mTecI, resolution = 0.5)
+
+# Look at cluster IDs of the first 5 cells
+
+head(Idents(mTecI), 5)
+
+```
+
+```{r}
+
+mTecI <- RunUMAP(mTecI, dims = 1:10)
+
+DimPlot(mTecI, reduction = "umap")
+
+```
+
+```{r}
+
+DimPlot(mTecI, reduction = "umap")
+
+```
+
+Finding differentially expressed features (cluster biomarkers)
+
+Seurat can help you find markers that define clusters via differential expression. By default, it identifies positive and negative markers of a single cluster (specified in ident.1), compared to all other cells. FindAllMarkers() automates this process for all clusters, but you can also test groups of clusters vs. each other, or against all cells.
+
+The min.pct argument requires a feature to be detected at a minimum percentage in either of the two groups of cells, and the thresh.test argument requires a feature to be differentially expressed (on average) by some amount between the two groups. You can set both of these to 0, but with a dramatic increase in time - since this will test a large number of features that are unlikely to be highly discriminatory. As another option to speed up these computations, max.cells.per.ident can be set. This will downsample each identity class to have no more cells than whatever this is set to. While there is generally going to be a loss in power, the speed increases can be significant and the most highly differentially expressed features will likely still rise to the top.
+
+```{r}
+
+mTecI.markers <- FindAllMarkers(mTecI, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+mTecI.markers %>%
+
+    group_by(cluster) %>%
+
+    slice_max(n = 2, order_by = avg_log2FC)
+
+```
+
+Seurat has several tests for differential expression which can be set with the test.use parameter (see our DE vignette for details). For example, the ROC test returns the 'classification power' for any individual marker (ranging from 0 - random, to 1 - perfect).
+
+```{r}
+
+cluster0.markers <- FindMarkers(mTecI, ident.1 = 0, logfc.threshold = 0.25, test.use = "roc", only.pos = TRUE)
+
+```
+
+DoHeatmap() generates an expression heatmap for given cells and features. In this case, we are plotting the top 20 markers (or all markers if less than 20) for each cluster.
+
+```{r}
+
+mTecI.markers %>%
+
+    group_by(cluster) %>%
+
+    top_n(n = 10, wt = avg_log2FC) -> top10
+
+DoHeatmap(mTecI, features = top10$gene) + NoLegend()
+
+```
